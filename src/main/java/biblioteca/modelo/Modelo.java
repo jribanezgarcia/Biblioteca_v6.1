@@ -22,7 +22,7 @@ public class Modelo {
     public void comenzar() {
         prestamos = new Prestamos();
         libros = new Libros();
-        usuarios = new Usuarios();
+        usuarios = Usuarios.getUsuarios();
     }
 
     public void terminar() { //No esta claro el uso de este método.

@@ -7,7 +7,7 @@ import java.sql.SQLOutput;
 
 public class Conexion {
 
-    private static final String HOST ="localhost";
+    private static final String HOST ="127.0.0.1";
     private static final String ESQUEMA="biblioteca";
     private static final String USUARIO="admin";
     private static final String CONTRASENA="biblioteca-2026";
@@ -17,7 +17,18 @@ public class Conexion {
     private Conexion() {
 
     }
-    public static Connection establecerConexion(){
+    public static Connection establecerConexion() throws SQLException {
+        //modificamos este condicional para usar try with resources
+        //como siempre se cierra, comprobamos que cuando este cerrada la vuelva a crear.
+        if(conexion==null || conexion.isClosed()){
+            conexion= DriverManager.getConnection("jdbc:mysql://"+HOST+"/"+ESQUEMA,USUARIO,CONTRASENA);
+            System.out.println("Conexion a Base de Datos realizada correctamente");
+        }
+
+        return conexion;
+    }
+
+    /*public static Connection establecerConexion(){
         if(conexion!=null){
             return conexion;
         }
@@ -28,7 +39,7 @@ public class Conexion {
             System.out.println("ERROR MySQL:  " + e.toString());
         }
         return conexion;
-    }
+    }*/
     public static void cerrarConexion(){
         try{
             if(conexion!=null){
