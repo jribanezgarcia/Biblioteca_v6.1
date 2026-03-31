@@ -66,7 +66,7 @@ public class Usuarios {
                 throw new Exception("ERROR MySQL: " + e.getMessage());
             }
         }
-        //no cerramosla conexion porque hemos implementado try with resources
+        //no cerramos la conexion porque hemos implementado try with resources
 
     }
 
@@ -76,8 +76,9 @@ public class Usuarios {
             throw new Exception("No se puede dar de baja un usuario nulo");
         }
 
+        String consulta="DELETE FROM usuario WHERE dni = ?";
         try (Connection conexion = Conexion.establecerConexion();
-             PreparedStatement sentenciaBorrarUsuario = conexion.prepareStatement("DELETE FROM usuario WHERE dni = ?")) {
+             PreparedStatement sentenciaBorrarUsuario = conexion.prepareStatement(consulta)) {
 
             sentenciaBorrarUsuario.setString(1, usuario.getDni());
             int row = sentenciaBorrarUsuario.executeUpdate();
@@ -112,10 +113,16 @@ public class Usuarios {
             sentencia.setString(1, usuario.getDni());
             filasUsuario = sentencia.executeQuery();
             if (filasUsuario.next()) {
-                Direccion direccionBuscado = new Direccion(filasUsuario.getString("via"), filasUsuario.getString("numero"),
-                        filasUsuario.getString("cp"), filasUsuario.getString("localidad"));
-                usuarioBuscado = new Usuario(filasUsuario.getString("dni"),
-                        filasUsuario.getString("nombre"), filasUsuario.getString("email"), direccionBuscado);
+                Direccion direccionBuscado = new Direccion
+                        (filasUsuario.getString("via"),
+                                filasUsuario.getString("numero"),
+                                filasUsuario.getString("cp"),
+                                filasUsuario.getString("localidad"));
+                usuarioBuscado = new Usuario
+                        (filasUsuario.getString("dni"),
+                                filasUsuario.getString("nombre"),
+                                filasUsuario.getString("email"),
+                                direccionBuscado);
             }
 
         } catch (SQLException e) {
@@ -135,17 +142,6 @@ public class Usuarios {
     }
 
 
-
-
-
-        /*int indiceBuscar= usuarios.indexOf(usuario); //aqui si lo podemos hacer porque la clase tiene equals
-        if(indiceBuscar>-1){
-            return new Usuario(usuarios.get(indiceBuscar));
-        }else{
-            return null;*/
-
-
-    //Devuelve un Array de todos los usuarios activos con copia profunda.
     public List<Usuario> todos() throws Exception {
 
         List<Usuario> listaSinNulos = new ArrayList<>();

@@ -120,9 +120,9 @@ public class Consola {
                 }
             }while(tipoLibro!=1 && tipoLibro!=2);
             // Datos comunes a Libro y Audiolibro
-            System.out.println("Introduce el número ISBN.");
-            System.out.println("Debe comenzar con 978 o 979, seguido por números.");
-            System.out.println("Ejemplo válido: 978-3-16-148410-0");
+            System.out.println("Introduce el número ISBN (13 dígitos).");
+            System.out.println("Debe comenzar con 978 o 979.");
+            System.out.println("Ejemplo válido: 9783161484100");
             String isbn = Entrada.cadena();
             System.out.println("Inserta titulo del libro");
             String titulo = Entrada.cadena();

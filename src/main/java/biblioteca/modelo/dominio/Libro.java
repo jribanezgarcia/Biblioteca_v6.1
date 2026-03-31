@@ -5,7 +5,8 @@ import java.util.List;
 import java.util.Objects;
 
 public class Libro implements Comparable<Libro>{
-    public static final String ISBN_PATTERN = "^(978|979)-[0-9]{1,5}-[0-9]{1,7}-[0-9]{1,7}-[0-9]$"; //Constante para la validación del número ISBN del libro.
+    //realizo el cambio del ISBN_PATTER a 13 digitos que empiecen por 978 o 979 para adaptarlo a la base de datos
+    public static final String ISBN_PATTERN = "^(978|979)[0-9]{10}$";
     private Categoria categoria;
     private String isbn;
     private String titulo;
@@ -80,7 +81,8 @@ public class Libro implements Comparable<Libro>{
         }
         if (!isbn.trim().matches(ISBN_PATTERN)) {
             throw new Exception("El formato del ISBN no es válido. " +
-                    "\nDebe seguir el patrón: (978|979)-#####-#######-#######-#");
+                    "\nDebe ser un número de 13 dígitos que empiece por 978 o 979." +
+                    "\nEjemplo: 9788437604947");
         }
         this.isbn = isbn;
     }
