@@ -104,9 +104,9 @@ public class Usuarios {
         Connection conexion = Conexion.establecerConexion();
         PreparedStatement sentencia = null;
         ResultSet filasUsuario = null;
-
         try {
-            sentencia = conexion.prepareStatement("select u.dni, u.nombre, u.email, d.via, d.numero, d.cp, d.localidad" +
+            sentencia = conexion.prepareStatement
+                    ("select u.dni, u.nombre, u.email, d.via, d.numero, d.cp, d.localidad" +
                     " from usuario u" +
                     " inner join direccion d on d.dni= u.dni" +
                     " where u.dni = ?");

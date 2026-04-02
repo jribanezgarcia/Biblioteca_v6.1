@@ -1,8 +1,14 @@
 package biblioteca.modelo.negocio;
 
 import biblioteca.modelo.dominio.Audiolibro;
+import biblioteca.modelo.dominio.Autor;
 import biblioteca.modelo.dominio.Libro;
+import biblioteca.modelo.negocio.mysql.Conexion;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,6 +21,8 @@ public class Libros {
 
     //validamos que el libro no este añadido y si no lanza la Excepcion añadimos el libro a la lista.
     public void alta(Libro libro) throws Exception { //ya configuramos el metodo equals para comparar por isbn
+        List<Autor> autoresLibro = libro.getAutores();
+        boolean esAudiolibro=false;
         if (libro == null) {
             throw new Exception("el libro no puede ser nulo para darlo de alta");
         }
@@ -22,10 +30,76 @@ public class Libros {
             throw new Exception("!!ERROR!!! El libro ya estaba dado de alta");
         }
         if (libro instanceof Audiolibro) {
-            libros.add(new Audiolibro((Audiolibro) libro));
+            esAudiolibro=true;
         } else {
-            libros.add(new Libro(libro));
+            esAudiolibro=false;
         }
+        String insertAutor=
+                "INSERT INTO autor (nombre, apellidos, nacionalidad) values (?,?,?)";
+        String insertLibro=
+                "insert into libro (isbn, titulo, anio, categoria)"+
+                " values (?, ?, ?, ?)";
+        String insertAudioLibro=
+                "insert into audiolibro(isbn, duracion_segundos, formato)"+
+                " values (?, ?, ?)";
+        String insertLibroAutor=
+                "INSERT INTO libro_autor (isbn, idAutor)" +
+                " SELECT ?, idAutor  FROM autor " +
+                " WHERE nombre = ? AND apellidos = ? AND nacionalidad = ?";
+
+
+        try(Connection conexion= Conexion.establecerConexion();
+        PreparedStatement pstLibro=conexion.prepareStatement(insertLibro);
+        PreparedStatement pstAudioLibro=conexion.prepareStatement(insertAudioLibro);){
+            pstLibro.setString(1,libro.getIsbn());
+            pstLibro.setString(2,libro.getTitulo());
+            pstLibro.setInt(3,libro.getAnio());
+            pstLibro.setString(4,libro.getCategoria().name()); //tb podemos usar .toString()
+            int filasLibro= pstLibro.executeUpdate();
+            if(filasLibro!=1){
+                throw new Exception("Error al insertar filas libro");
+            }
+            if(esAudiolibro){
+                pstAudioLibro.setString(1,libro.getIsbn());
+                pstAudioLibro.setInt(2, (int) ((Audiolibro) libro).getDuracion().toSeconds());
+                pstAudioLibro.setString(3,((Audiolibro) libro).getFormato());
+                int filasAudioLibro= pstAudioLibro.executeUpdate();
+                if(filasAudioLibro!=1){
+                    throw new Exception("Error añadir filas audiolibro");
+                }
+            }
+        }catch (SQLException e){
+
+            System.out.println("Error MySQL "+e.getMessage());
+        }
+
+
+
+        try(Connection conexion= Conexion.establecerConexion();
+        PreparedStatement pstAutor= conexion.prepareStatement(insertAutor);
+        PreparedStatement pstLibroAutor= conexion.prepareStatement(insertLibroAutor);
+        ){
+
+        for(Autor autor : autoresLibro){
+            pstAutor.setString(1,autor.getNombre());
+            pstAutor.setString(2,autor.getApellidos());
+            pstAutor.setString(3,autor.getNacionalidad());
+            pstAutor.executeUpdate();
+            pstLibroAutor.setString(1,libro.getIsbn());
+            pstLibroAutor.setString(2,autor.getNombre());
+            pstLibroAutor.setString(3,autor.getApellidos());
+            pstLibroAutor.setString(4,autor.getNacionalidad());
+            pstLibroAutor.executeUpdate();
+        }
+
+        }catch (SQLException e){
+            System.out.println("ERROR MySQL "+e.getMessage());
+        }
+
+
+
+        //primero añadimos los autores por las restricciones de la tabla libro_autor
+        //orden de ejecucion autor, libro y libro_autor por la confinguracion de la tabla
 
     }
 
