@@ -61,7 +61,7 @@ public class Usuarios {
             }
         } catch (SQLException e) {
             if (e.getErrorCode() == 1062) {
-                throw new Exception("El usuario con DNI " + usuario.getDni() + " ya existe");
+                throw new Exception("El  DNI " + usuario.getDni() + " ya existe en nuestra base de datos");
             } else {
                 throw new Exception("ERROR MySQL: " + e.getMessage());
             }

@@ -2,11 +2,13 @@ package biblioteca.modelo.negocio;
 
 import biblioteca.modelo.dominio.Audiolibro;
 import biblioteca.modelo.dominio.Autor;
+import biblioteca.modelo.dominio.Categoria;
 import biblioteca.modelo.dominio.Libro;
 import biblioteca.modelo.negocio.mysql.Conexion;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -19,16 +21,18 @@ public class Libros {
         this.libros = new ArrayList<>();
     }
 
-    //validamos que el libro no este añadido y si no lanza la Excepcion añadimos el libro a la lista.
-    public void alta(Libro libro) throws Exception { //ya configuramos el metodo equals para comparar por isbn
-        List<Autor> autoresLibro = libro.getAutores();
-        boolean esAudiolibro=false;
+
+    public void alta(Libro libro) throws Exception {
+        //hay que controlar que el libro no este duplicado.
+
         if (libro == null) {
             throw new Exception("el libro no puede ser nulo para darlo de alta");
         }
         if (buscar(libro) != null) {
             throw new Exception("!!ERROR!!! El libro ya estaba dado de alta");
         }
+        List<Autor> autoresLibro = libro.getAutores();
+        boolean esAudiolibro=false;
         if (libro instanceof Audiolibro) {
             esAudiolibro=true;
         } else {
@@ -42,15 +46,21 @@ public class Libros {
         String insertAudioLibro=
                 "insert into audiolibro(isbn, duracion_segundos, formato)"+
                 " values (?, ?, ?)";
+        //añade isbn y idAutor para ello buscamos el idAutor donde coincidan los tres parametros
+        //puesto que es unique key nombre, apellidos, nacionalidad
         String insertLibroAutor=
                 "INSERT INTO libro_autor (isbn, idAutor)" +
                 " SELECT ?, idAutor  FROM autor " +
                 " WHERE nombre = ? AND apellidos = ? AND nacionalidad = ?";
 
 
+        //añadimos primero libro y audiolibro por las restricciones de las tablas para que luego se referencien
         try(Connection conexion= Conexion.establecerConexion();
-        PreparedStatement pstLibro=conexion.prepareStatement(insertLibro);
-        PreparedStatement pstAudioLibro=conexion.prepareStatement(insertAudioLibro);){
+
+            PreparedStatement pstLibro=conexion.prepareStatement(insertLibro);
+            PreparedStatement pstAudioLibro = conexion.prepareStatement(insertAudioLibro);
+            PreparedStatement pstAutor = conexion.prepareStatement(insertAutor);
+            PreparedStatement pstLibroAutor = conexion.prepareStatement(insertLibroAutor)) {
             pstLibro.setString(1,libro.getIsbn());
             pstLibro.setString(2,libro.getTitulo());
             pstLibro.setInt(3,libro.getAnio());
@@ -61,45 +71,30 @@ public class Libros {
             }
             if(esAudiolibro){
                 pstAudioLibro.setString(1,libro.getIsbn());
-                pstAudioLibro.setInt(2, (int) ((Audiolibro) libro).getDuracion().toSeconds());
+                pstAudioLibro.setInt(2, (int) ((Audiolibro) libro).getDuracion().toSeconds());//parseamos la entrada
                 pstAudioLibro.setString(3,((Audiolibro) libro).getFormato());
                 int filasAudioLibro= pstAudioLibro.executeUpdate();
                 if(filasAudioLibro!=1){
                     throw new Exception("Error añadir filas audiolibro");
                 }
             }
+            //añadimos el autor y libro_autor en la misma vuelta cuando ya estan referenciados.
+            for (Autor autor : autoresLibro) {
+                pstAutor.setString(1, autor.getNombre());
+                pstAutor.setString(2, autor.getApellidos());
+                pstAutor.setString(3, autor.getNacionalidad());
+                pstAutor.executeUpdate();
+                pstLibroAutor.setString(1, libro.getIsbn());
+                pstLibroAutor.setString(2, autor.getNombre());
+                pstLibroAutor.setString(3, autor.getApellidos());
+                pstLibroAutor.setString(4, autor.getNacionalidad());
+                pstLibroAutor.executeUpdate();
+            }
+        //lanzar excepcion o mensaje?
         }catch (SQLException e){
 
-            System.out.println("Error MySQL "+e.getMessage());
+            throw new Exception("Error MySQL "+e.getMessage());
         }
-
-
-
-        try(Connection conexion= Conexion.establecerConexion();
-        PreparedStatement pstAutor= conexion.prepareStatement(insertAutor);
-        PreparedStatement pstLibroAutor= conexion.prepareStatement(insertLibroAutor);
-        ){
-
-        for(Autor autor : autoresLibro){
-            pstAutor.setString(1,autor.getNombre());
-            pstAutor.setString(2,autor.getApellidos());
-            pstAutor.setString(3,autor.getNacionalidad());
-            pstAutor.executeUpdate();
-            pstLibroAutor.setString(1,libro.getIsbn());
-            pstLibroAutor.setString(2,autor.getNombre());
-            pstLibroAutor.setString(3,autor.getApellidos());
-            pstLibroAutor.setString(4,autor.getNacionalidad());
-            pstLibroAutor.executeUpdate();
-        }
-
-        }catch (SQLException e){
-            System.out.println("ERROR MySQL "+e.getMessage());
-        }
-
-
-
-        //primero añadimos los autores por las restricciones de la tabla libro_autor
-        //orden de ejecucion autor, libro y libro_autor por la confinguracion de la tabla
 
     }
 
@@ -111,26 +106,91 @@ public class Libros {
         if (buscar(libro) == null) { //lanzamos la excepcion si el metodo buscar retorna null puesto que no se ha encontrado el libro.
             throw new Exception("Libro no encontrado para ser dado de baja");
         }
-        libros.remove(libro); //el metodo remove devuelve true?
+
+        /*Primero borramos en la tabla libro por isbn que hará que se borre en audiolibro y libro_autor
+        después borramos por autores que no esten en libro_autor, que seran los que estaban relacionados
+        con el libro que se acaba de borrar
+        */
+        String pstDeleteLibro="delete from libro where isbn = ?";
+        String pstDeleteAutores="delete from autor where idAutor not in(select idAutor from libro_autor)";
+
+        try(Connection conexion = Conexion.establecerConexion();
+        PreparedStatement sentenciaBorrarLibro= conexion.prepareStatement(pstDeleteLibro);
+        PreparedStatement sentenciaBorrarAutores= conexion.prepareStatement(pstDeleteAutores)){
+            sentenciaBorrarLibro.setString(1,libro.getIsbn());
+            int filasBL= sentenciaBorrarLibro.executeUpdate();
+            if (filasBL ==0){
+                throw new Exception("Error al dar de baja el libro "+ libro.getTitulo());
+            }
+            //si no se lanza la excepcion borramos los autores que no tienen isbn asociado.
+            sentenciaBorrarAutores.executeUpdate();
+
+        }catch (SQLException e){
+            throw new Exception("ERROR MySQL "+e.getMessage());
+        }
+
         return true;
     }
-
-    //Metodo que devuelve un objeto tipo libro en la comparacion y sino lo encuentra retorna null. Utilizado para los metodos de alta en la clase Consola.
     public Libro buscar(Libro libro) throws Exception {
         if (libro == null) {
             throw new Exception("el libro no puede ser nulo");
         }
-        int indiceBuscar = libros.indexOf(libro); //usamos index0f en vez de for each para buscar.
-        if (indiceBuscar > -1) {
-            Libro libroEncontrado = libros.get(indiceBuscar); //buscamos el libro real que será Audiolibro o Libro
-            if (libroEncontrado instanceof Audiolibro) {
-                return new Audiolibro((Audiolibro)libroEncontrado); //hacemos la copia del libro encontrado si es Audio libro, se podrá devolver solo la copia?
-            } else {
-                return new Libro(libroEncontrado);
+
+        Libro libroBuscado = null;
+        String buscarLibro = "SELECT l.isbn, l.titulo, l.anio, l.categoria, " +
+                "al.duracion_segundos, al.formato " +
+                "FROM libro l " +
+                "LEFT JOIN audiolibro al ON al.isbn = l.isbn " +
+                "WHERE l.isbn = ?";
+        String buscarAutores = "SELECT a.nombre, a.apellidos, a.nacionalidad " +
+                "FROM autor a " +
+                "INNER JOIN libro_autor la ON la.idAutor = a.idAutor " +
+                "WHERE la.isbn = ?";
+
+        try (Connection conexion = Conexion.establecerConexion();
+             PreparedStatement pstLibro = conexion.prepareStatement(buscarLibro);
+             PreparedStatement pstAutor = conexion.prepareStatement(buscarAutores)) {
+
+            pstLibro.setString(1, libro.getIsbn());
+
+            try (ResultSet rsLibro = pstLibro.executeQuery()) {
+                // ISBN es unico, usamos if en lugar de while
+                if (rsLibro.next()) {
+                    String isbn = rsLibro.getString("isbn");
+                    String titulo = rsLibro.getString("titulo");
+                    int anio = rsLibro.getInt("anio");
+                    Categoria categoria = Categoria.valueOf(rsLibro.getString("categoria"));
+                    int duracion = rsLibro.getInt("duracion_segundos");
+                    String formato = rsLibro.getString("formato");
+
+                    if (formato != null) { // es audiolibro
+                        libroBuscado = new Audiolibro(isbn, titulo, anio, categoria,
+                                Duration.ofSeconds(duracion), formato);
+                    } else { // es libro normal
+                        libroBuscado = new Libro(isbn, titulo, anio, categoria);
+                    }
+                }
             }
+
+            if (libroBuscado != null) {
+                pstAutor.setString(1, libro.getIsbn());
+                try (ResultSet rsAutor = pstAutor.executeQuery()) {
+                    while (rsAutor.next()) {
+                        libroBuscado.addAutor(new Autor(
+                                rsAutor.getString("nombre"),
+                                rsAutor.getString("apellidos"),
+                                rsAutor.getString("nacionalidad")));
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
         }
-        return null;
+
+        return libroBuscado;
     }
+
 
 
 
