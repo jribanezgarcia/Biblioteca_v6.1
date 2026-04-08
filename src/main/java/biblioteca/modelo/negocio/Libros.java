@@ -41,6 +41,7 @@ public class Libros {
         }
         List<Autor> autoresLibro = libro.getAutores();
         boolean esAudiolibro=false;
+        // esAudiolibro= libro instanceof Audiolibro; <-- esto devuelve true o false?
         if (libro instanceof Audiolibro) {
             esAudiolibro=true;
         } else {
@@ -105,7 +106,6 @@ public class Libros {
         }
 
     }
-
 
     public boolean bajaLibro(Libro libro) throws Exception {
         if (libro == null) {
