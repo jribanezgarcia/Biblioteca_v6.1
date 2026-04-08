@@ -21,7 +21,7 @@ public class Modelo {
 
     public void comenzar() {
         prestamos = new Prestamos();
-        libros = new Libros();
+        libros = Libros.getLibros();
         usuarios = Usuarios.getUsuarios();
     }
 

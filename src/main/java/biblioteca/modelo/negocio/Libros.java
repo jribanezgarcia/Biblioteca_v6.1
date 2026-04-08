@@ -15,10 +15,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Libros {
-    private final List<Libro> libros;
 
-    public Libros() {
-        this.libros = new ArrayList<>();
+    private static Libros libros = null;
+
+    private Libros() {
+
+    }
+    public static Libros getLibros() {
+        //creamos un metodo static para devolver el libro para usarlo.
+        if (libros == null) {
+            libros = new Libros();
+        }
+        return libros;
     }
 
 
@@ -103,6 +111,7 @@ public class Libros {
         if (libro == null) {
             throw new Exception("el libro no puede ser nulo para darlo de baja");
         }
+        //no se si hay que buscarlo porque haria otra conexion a la base de datos. ????
         if (buscar(libro) == null) { //lanzamos la excepcion si el metodo buscar retorna null puesto que no se ha encontrado el libro.
             throw new Exception("Libro no encontrado para ser dado de baja");
         }
@@ -192,19 +201,63 @@ public class Libros {
     }
 
 
+    public List<Libro> todos() {
+        List<Libro> librosBD = new ArrayList<>();
+
+        String leerLibros = "SELECT l.isbn, l.titulo, l.anio, l.categoria, " +
+                "al.duracion_segundos, al.formato " +
+                "FROM libro l " +
+                "LEFT JOIN audiolibro al ON al.isbn = l.isbn ";
+        String leerAutores = "SELECT a.nombre, a.apellidos, a.nacionalidad " +
+                "FROM autor a " +
+                "INNER JOIN libro_autor la ON la.idAutor = a.idAutor " +
+                "WHERE la.isbn = ?";
+        try(Connection con = Conexion.establecerConexion();
+        PreparedStatement ptLibros = con.prepareStatement(leerLibros);
+        PreparedStatement ptAutores= con.prepareStatement(leerAutores))
+        {
+
+            try(ResultSet filasLibros= ptLibros.executeQuery()){
+                while(filasLibros.next()){
+                    Libro libro;
+                    List <Autor> autores = new ArrayList<>();
+                    String isbn = filasLibros.getString("isbn");
+                    String titulo = filasLibros.getString("titulo");
+                    int anio = filasLibros.getInt("anio");
+                    Categoria categoria = Categoria.valueOf(filasLibros.getString("categoria"));
+                    Duration duracion = Duration.ofSeconds(filasLibros.getInt("duracion_segundos"));
+                    String formato = filasLibros.getString("formato");
+                    if(formato==null){
+                        libro = new Libro(isbn,titulo,anio,categoria);
+                    }else{
+                        libro = new Audiolibro(isbn,titulo,anio,categoria,duracion,formato);
+                    }
+                    ptAutores.setString(1,isbn);
+                    try(ResultSet filasAutores= ptAutores.executeQuery()){
+
+                        while(filasAutores.next()){
+                            String nombre = filasAutores.getString("nombre");
+                            String apellidos = filasAutores.getString("apellidos");
+                            String nacionalidad = filasAutores.getString("nacionalidad");
+                            autores.add(new Autor(nombre,apellidos,nacionalidad));
+
+                        }
 
 
-
-    //Metodo para que devuelva un nuevo Array de tipo Libro solo con los libros dados de alta, es decir sin nulos.
-    public List<Libro> todos() throws Exception {
-        List<Libro> listaSinNulos = new ArrayList<>();
-        for (Libro l : libros) {
-            if (l instanceof Audiolibro) {
-                listaSinNulos.add(new Audiolibro((Audiolibro) l));
-            } else {
-                listaSinNulos.add(new Libro(l));
+                    }
+                    for(Autor a : autores){
+                        libro.addAutor(a);
+                    }
+                    librosBD.add(libro);
+                }
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             }
+
+
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
         }
-        return listaSinNulos;
+        return librosBD;
     }
 }
