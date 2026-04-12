@@ -64,9 +64,9 @@ public class Libros {
 
 
         //añadimos primero libro y audiolibro por las restricciones de las tablas para que luego se referencien
-        try(Connection conexion= Conexion.establecerConexion();
-
-            PreparedStatement pstLibro=conexion.prepareStatement(insertLibro);
+        Connection conexion = Conexion.establecerConexion();
+        conexion.setAutoCommit(false);
+        try(PreparedStatement pstLibro=conexion.prepareStatement(insertLibro);
             PreparedStatement pstAudioLibro = conexion.prepareStatement(insertAudioLibro);
             PreparedStatement pstAutor = conexion.prepareStatement(insertAutor);
             PreparedStatement pstLibroAutor = conexion.prepareStatement(insertLibroAutor)) {
@@ -76,7 +76,7 @@ public class Libros {
             pstLibro.setString(4,libro.getCategoria().name()); //tb podemos usar .toString()
             int filasLibro= pstLibro.executeUpdate();
             if(filasLibro!=1){
-                throw new Exception("Error al insertar filas libro");
+                throw new SQLException("Error al insertar filas libro");
             }
             if(esAudiolibro){
                 pstAudioLibro.setString(1,libro.getIsbn());
@@ -84,7 +84,7 @@ public class Libros {
                 pstAudioLibro.setString(3,((Audiolibro) libro).getFormato());
                 int filasAudioLibro= pstAudioLibro.executeUpdate();
                 if(filasAudioLibro!=1){
-                    throw new Exception("Error añadir filas audiolibro");
+                    throw new SQLException("Error añadir filas audiolibro");
                 }
             }
             //añadimos el autor y libro_autor en la misma vuelta cuando ya estan referenciados.
@@ -99,10 +99,14 @@ public class Libros {
                 pstLibroAutor.setString(4, autor.getNacionalidad());
                 pstLibroAutor.executeUpdate();
             }
-        //lanzar excepcion o mensaje?
+        //hacemos el commit si no ha saltado excepcion.
+            conexion.commit();
         }catch (SQLException e){
-
+            conexion.rollback();
             throw new Exception("Error MySQL "+e.getMessage());
+        }finally{
+            //pase lo que pase volvemos a poner el autocommit
+            conexion.setAutoCommit(true);
         }
 
     }
@@ -123,8 +127,8 @@ public class Libros {
         String pstDeleteLibro="delete from libro where isbn = ?";
         String pstDeleteAutores="delete from autor where idAutor not in(select idAutor from libro_autor)";
 
-        try(Connection conexion = Conexion.establecerConexion();
-        PreparedStatement sentenciaBorrarLibro= conexion.prepareStatement(pstDeleteLibro);
+        Connection conexion = Conexion.establecerConexion();
+        try(PreparedStatement sentenciaBorrarLibro= conexion.prepareStatement(pstDeleteLibro);
         PreparedStatement sentenciaBorrarAutores= conexion.prepareStatement(pstDeleteAutores)){
             sentenciaBorrarLibro.setString(1,libro.getIsbn());
             int filasBL= sentenciaBorrarLibro.executeUpdate();
@@ -156,8 +160,8 @@ public class Libros {
                 "INNER JOIN libro_autor la ON la.idAutor = a.idAutor " +
                 "WHERE la.isbn = ?";
 
-        try (Connection conexion = Conexion.establecerConexion();
-             PreparedStatement pstLibro = conexion.prepareStatement(buscarLibro);
+        Connection conexion = Conexion.establecerConexion();
+        try (PreparedStatement pstLibro = conexion.prepareStatement(buscarLibro);
              PreparedStatement pstAutor = conexion.prepareStatement(buscarAutores)) {
 
             pstLibro.setString(1, libro.getIsbn());
@@ -201,7 +205,7 @@ public class Libros {
     }
 
 
-    public List<Libro> todos() {
+    public List<Libro> todos() throws Exception {
         List<Libro> librosBD = new ArrayList<>();
 
         String leerLibros = "SELECT l.isbn, l.titulo, l.anio, l.categoria, " +
@@ -212,8 +216,8 @@ public class Libros {
                 "FROM autor a " +
                 "INNER JOIN libro_autor la ON la.idAutor = a.idAutor " +
                 "WHERE la.isbn = ?";
-        try(Connection con = Conexion.establecerConexion();
-        PreparedStatement ptLibros = con.prepareStatement(leerLibros);
+        Connection con = Conexion.establecerConexion();
+        try(PreparedStatement ptLibros = con.prepareStatement(leerLibros);
         PreparedStatement ptAutores= con.prepareStatement(leerAutores))
         {
 
@@ -242,21 +246,16 @@ public class Libros {
                             autores.add(new Autor(nombre,apellidos,nacionalidad));
 
                         }
-
-
                     }
                     for(Autor a : autores){
                         libro.addAutor(a);
                     }
                     librosBD.add(libro);
                 }
-            } catch (Exception e) {
-                throw new RuntimeException(e);
             }
 
-
         } catch (SQLException e) {
-            throw new RuntimeException(e);
+            throw new Exception("ERROR MySQL: " + e.getMessage());
         }
         return librosBD;
     }

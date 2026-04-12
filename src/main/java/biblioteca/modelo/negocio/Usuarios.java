@@ -33,8 +33,10 @@ public class Usuarios {
             throw new Exception("El Usuario para dar de alta no puede ser nulo");
         }
 
-        try (Connection conexion = Conexion.establecerConexion();
-             PreparedStatement sentenciaUsuario = conexion.prepareStatement(
+        Connection conexion = Conexion.establecerConexion();
+        //ponemos autocommit en false por si hay algun error al insertar en dos tablas diferentes
+        conexion.setAutoCommit(false);
+        try (PreparedStatement sentenciaUsuario = conexion.prepareStatement(
                      "INSERT INTO usuario (dni, nombre, email)" +
                              " VALUES (?, ?, ?)");
              PreparedStatement sentenciaDireccion = conexion.prepareStatement("INSERT INTO direccion " +
@@ -47,7 +49,7 @@ public class Usuarios {
             sentenciaUsuario.setString(3, usuario.getEmail());
             int rowUsuario = sentenciaUsuario.executeUpdate();
             if (rowUsuario == 0) {
-                throw new Exception("Error al hacer el INSERT del usuario");
+                throw new SQLException("Error al hacer el INSERT del usuario");
             }
 
             sentenciaDireccion.setString(1, usuario.getDni());
@@ -57,9 +59,16 @@ public class Usuarios {
             sentenciaDireccion.setString(5, usuario.getDireccion().getLocalidad());
             int rowDireccion = sentenciaDireccion.executeUpdate();
             if (rowDireccion == 0) {
-                throw new Exception("Error al hacer el INSERT de la direccion");
+                throw new SQLException("Error al hacer el INSERT de la direccion");
             }
+            //si no salta ninguna excepcion se hace el commit.
+            conexion.commit();
+            //volvemos a dejarlo como estaba el autocommit
+            conexion.setAutoCommit(true);
         } catch (SQLException e) {
+            //si hay alguna excepcion se deshace el commit.
+            conexion.rollback();
+            conexion.setAutoCommit(true);
             if (e.getErrorCode() == 1062) {
                 throw new Exception("El  DNI " + usuario.getDni() + " ya existe en nuestra base de datos");
             } else {
@@ -77,8 +86,8 @@ public class Usuarios {
         }
 
         String consulta="DELETE FROM usuario WHERE dni = ?";
-        try (Connection conexion = Conexion.establecerConexion();
-             PreparedStatement sentenciaBorrarUsuario = conexion.prepareStatement(consulta)) {
+        Connection conexion = Conexion.establecerConexion();
+        try (PreparedStatement sentenciaBorrarUsuario = conexion.prepareStatement(consulta)) {
 
             sentenciaBorrarUsuario.setString(1, usuario.getDni());
             int row = sentenciaBorrarUsuario.executeUpdate();
@@ -131,7 +140,6 @@ public class Usuarios {
             try {
                 if (filasUsuario != null) filasUsuario.close();
                 if (sentencia != null) sentencia.close();
-                Conexion.cerrarConexion();
             } catch (SQLException e) {
                 throw new Exception("Error al cerrar: " + e.getMessage());
             }

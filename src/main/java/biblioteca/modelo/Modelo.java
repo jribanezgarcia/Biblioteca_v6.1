@@ -6,6 +6,7 @@ import biblioteca.modelo.dominio.Usuario;
 import biblioteca.modelo.negocio.Libros;
 import biblioteca.modelo.negocio.Prestamos;
 import biblioteca.modelo.negocio.Usuarios;
+import biblioteca.modelo.negocio.mysql.Conexion;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -20,12 +21,14 @@ public class Modelo {
     }
 
     public void comenzar() {
-        prestamos = new Prestamos();
+        prestamos = Prestamos.getPrestamos();
         libros = Libros.getLibros();
         usuarios = Usuarios.getUsuarios();
     }
 
     public void terminar() { //No esta claro el uso de este método.
+        //cerramos la conexion a la base de datos aqui, al cerrar el programa.
+        Conexion.cerrarConexion();
         System.out.println("Termina Modelo");
     }
 

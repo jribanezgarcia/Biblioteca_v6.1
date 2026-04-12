@@ -21,8 +21,15 @@ public class Conexion {
         //modificamos este condicional para usar try with resources
         //como siempre se cierra, comprobamos que cuando este cerrada la vuelva a crear.
         if(conexion==null || conexion.isClosed()){
-            conexion= DriverManager.getConnection("jdbc:mysql://"+HOST+"/"+ESQUEMA,USUARIO,CONTRASENA);
-            System.out.println("Conexion a Base de Datos realizada correctamente");
+            try{
+                conexion= DriverManager.getConnection("jdbc:mysql://"+HOST+"/"+ESQUEMA,USUARIO,CONTRASENA);
+                System.out.println("Conexion a Base de Datos realizada correctamente");
+            }catch (SQLException e){
+                //creamos una Excepcion aqui por si direra error la conexion con la base de datos.
+                //esta excepcion se captuara en cada metodo de Negocio.
+                throw  new SQLException("Error al conectar con la base de datos "+e.getMessage());
+            }
+
         }
 
         return conexion;
@@ -45,7 +52,7 @@ public class Conexion {
             if(conexion!=null){
                 conexion.close();
                 conexion = null;
-                System.out.println("Conexion a MySQL cerrada correctamente.");
+                System.out.println("Conexion a Base de datos cerrada correctamente.");
             }
         }catch(SQLException e){
             System.out.println("ERROR MySQL: "+ e.toString());
