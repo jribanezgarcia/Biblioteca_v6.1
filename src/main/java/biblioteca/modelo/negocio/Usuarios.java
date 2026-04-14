@@ -9,16 +9,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Usuarios {
-    //private final List<Usuario> usuarios;
     private static Usuarios usuarios = null;
 
     private Usuarios() {
 
     }
-    /*public Usuarios() {
-        this.usuarios = new ArrayList<>();
-    }*/
-
     public static Usuarios getUsuarios() {
         //creamos un metodo static para devolver el usuario para usarlo.
         if (usuarios == null) {

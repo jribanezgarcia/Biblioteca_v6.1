@@ -124,6 +124,8 @@ public class Libros {
         después borramos por autores que no esten en libro_autor, que seran los que estaban relacionados
         con el libro que se acaba de borrar
         */
+        //esto es solo para sacar el mensaje de error del libro.**revisar
+        Libro l = buscar(libro);
         String pstDeleteLibro="delete from libro where isbn = ?";
         String pstDeleteAutores="delete from autor where idAutor not in(select idAutor from libro_autor)";
 
@@ -139,6 +141,10 @@ public class Libros {
             sentenciaBorrarAutores.executeUpdate();
 
         }catch (SQLException e){
+            if(e.getErrorCode()==1451){
+                throw new Exception("No se puede borrar el libro "+l.getTitulo()+
+                        " porque tiene préstamos activos");
+            }
             throw new Exception("ERROR MySQL "+e.getMessage());
         }
 
@@ -176,7 +182,7 @@ public class Libros {
                     int duracion = rsLibro.getInt("duracion_segundos");
                     String formato = rsLibro.getString("formato");
 
-                    if (formato != null) { // es audiolibro
+                    if (formato != null) { // validamos si formato no es nulo, entonces es audiolibro
                         libroBuscado = new Audiolibro(isbn, titulo, anio, categoria,
                                 Duration.ofSeconds(duracion), formato);
                     } else { // es libro normal

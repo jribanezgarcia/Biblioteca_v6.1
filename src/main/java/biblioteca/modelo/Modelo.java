@@ -21,9 +21,9 @@ public class Modelo {
     }
 
     public void comenzar() {
-        prestamos = Prestamos.getPrestamos();
-        libros = Libros.getLibros();
-        usuarios = Usuarios.getUsuarios();
+        this.prestamos = Prestamos.getPrestamos();
+        this.libros = Libros.getLibros();
+        this.usuarios = Usuarios.getUsuarios();
     }
 
     public void terminar() { //No esta claro el uso de este método.

@@ -12,7 +12,6 @@ import java.util.List;
 public class Prestamos {
     private static Prestamos prestamos = null;
 
-
     private Prestamos(){
 
     }
@@ -35,13 +34,7 @@ public class Prestamos {
             throw new Exception("ERROR, la fecha no puede ser nula");
         }
         //buscar lo valida ya la vista al introducir los datos del usuario y del libro.
-        //mantener las validaciones auqnue cueste mas llamadas. por si se cambia la vista (tarea 9).
-        /*if(Libros.getLibros().buscar(libro)==null){
-            throw new Exception("libro "+libro.getTitulo()+" no encontrado en BD para hacer el préstamo");
-        }
-        if(Usuarios.getUsuarios().buscar(usuario)==null){
-            throw new Exception("usuario "+usuario.getNombre()+" no encontrado en BD para hacer el préstamo");
-        }*/
+        //MySQL impide insertar un prestamo con usuario o libro que no este en ella
         //hay dos columnas que tienen valores por defecto en la BD, devuelto que sera 0 y fDevolucion null
         //estos valores no se insertan porque deben estar asi al realizar el prestamo.
         Prestamo prestamoNuevo = new Prestamo(libro,usuario,fecha);
@@ -72,13 +65,6 @@ public class Prestamos {
         }
         if (fechaDevolucion == null) {
             throw new Exception("ERROR, la fecha no puede ser nula");
-        }
-        //probamos creando la conexion aqui aunque creo que n ohace falta porque los metodos buscar ya lo lleva.
-        if(Libros.getLibros().buscar(libro)==null){
-            throw new Exception("Libro "+libro.getTitulo()+" no encontrado, no se puedo realizar la devolution del préstamo");
-        }
-        if(Usuarios.getUsuarios().buscar(usuario)==null){
-            throw new Exception("Usuario "+usuario.getNombre()+" no encontrado, no se puedo realizar la devolución del préstamo");
         }
         Connection conexion = Conexion.establecerConexion();
         String sqlDevolver="UPDATE prestamo SET devuelto = 1, fDevolucion = ?"+
@@ -206,7 +192,6 @@ public class Prestamos {
         try(PreparedStatement psListPrestamosUsuario = con.prepareStatement(sqlListUsuario);
             PreparedStatement psListLeerLibros = con.prepareStatement(leerLibros);
             PreparedStatement psListLeerAutores= con.prepareStatement(leerAutores)){
-            //psListPrestamosUsuario.setString(1,usuario.getDni());
             try(ResultSet filas= psListPrestamosUsuario.executeQuery()){
                 while(filas.next()){
                     String dni = filas.getString("dni");
