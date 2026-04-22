@@ -30,7 +30,11 @@ public class Usuarios {
 
         Connection conexion = Conexion.establecerConexion();
         //ponemos autocommit en false por si hay algun error al insertar en dos tablas diferentes
-        conexion.setAutoCommit(false);
+        try {
+            conexion.setAutoCommit(false);
+        } catch (SQLException e) {
+            throw new Exception("ERROR al hacer AutoCommit: " + e.getMessage());
+        }
         try (PreparedStatement sentenciaUsuario = conexion.prepareStatement(
                      "INSERT INTO usuario (dni, nombre, email)" +
                              " VALUES (?, ?, ?)");
@@ -58,16 +62,24 @@ public class Usuarios {
             }
             //si no salta ninguna excepcion se hace el commit.
             conexion.commit();
-            //volvemos a dejarlo como estaba el autocommit
-            conexion.setAutoCommit(true);
         } catch (SQLException e) {
             //si hay alguna excepcion se deshace el commit.
-            conexion.rollback();
-            conexion.setAutoCommit(true);
+            try {
+                conexion.rollback();
+            } catch (SQLException ex) {
+                throw new Exception("ERROR al hacer rollback: " + ex.getMessage());
+            }
             if (e.getErrorCode() == 1062) {
                 throw new Exception("El  DNI " + usuario.getDni() + " ya existe en nuestra base de datos");
             } else {
                 throw new Exception("ERROR MySQL: " + e.getMessage());
+            }
+        } finally {
+            try {
+                //volvemos a dejar como estaba AutoCommit
+                conexion.setAutoCommit(true);
+            } catch (SQLException ex) {
+                throw new Exception("ERROR al restaurar autocommit: " + ex.getMessage());
             }
         }
         //no cerramos la conexion porque hemos implementado try with resources
@@ -172,7 +184,7 @@ public class Usuarios {
 
             }
         } catch (SQLException e) {
-            System.out.println(e.getMessage());
+            throw new Exception("ERROR MySQL: " + e.getMessage());
         } finally {
             try {
                 filas.close();
@@ -181,7 +193,7 @@ public class Usuarios {
                 Conexion.cerrarConexion();
 
             } catch (SQLException e) {
-                System.out.println(e.getMessage());
+                throw new Exception("Error al cerrar recursos: " + e.getMessage());
             }
         }
         return listaSinNulos;

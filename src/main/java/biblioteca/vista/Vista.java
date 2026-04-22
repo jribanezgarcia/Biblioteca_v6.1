@@ -240,7 +240,7 @@ public class Vista {
     private void mostrarPrestamosUsuario() throws Exception {
         System.out.println("\n|||||  MOSTRAR PRESTAMOS DE USUARIO  ||||");
         try{
-            System.out.println("Introduce el dni del usuario para ver sus prestamos activos");
+            System.out.println("Introduce el dni del usuario para ver sus prestamos");
             Usuario usuarioPrestamo = controlador.buscar(Consola.nuevoUsuario(true));
             List<Prestamo> historialPrestamosUsuario =controlador.listadoPrestamos(usuarioPrestamo);
             if (historialPrestamosUsuario == null) {

@@ -1,0 +1,452 @@
+===============================================================
+ PROPUESTAS DE CAMBIO - BIBLIOTECA v6.1
+ Correcciones segun feedback del profesor
+===============================================================
+
+
+===============================================================
+FICHERO: biblioteca/modelo/negocio/Libros.java
+===============================================================
+
+
+--------------------------------------------------
+1) METODO: bajaLibro(Libro libro)
+--------------------------------------------------
+
+CAMBIO:
+   - Eliminar la busqueda previa con buscar(libro).
+   - Ejecutar DELETE directamente.
+   - Si filas afectadas == 0, lanzar excepcion (el libro no existia).
+   - El mensaje de error por restriccion 1451 usa ISBN en lugar de titulo,
+     porque el libro que entra por parametro puede ser un dummy.
+
+JUSTIFICACION:
+   El profesor senala que lo haces asi en Usuarios.baja() pero no aqui.
+   Ademas, el libro que entra puede ser dummy (solo ISBN valido).
+
+CODIGO PROPUESTO:
+
+    public boolean bajaLibro(Libro libro) throws Exception {
+        if (libro == null) {
+            throw new Exception("el libro no puede ser nulo para darlo de baja");
+        }
+
+        String pstDeleteLibro = "delete from libro where isbn = ?";
+        String pstDeleteAutores = "delete from autor where idAutor not in(select idAutor from libro_autor)";
+
+        Connection conexion = Conexion.establecerConexion();
+        try (PreparedStatement sentenciaBorrarLibro = conexion.prepareStatement(pstDeleteLibro);
+             PreparedStatement sentenciaBorrarAutores = conexion.prepareStatement(pstDeleteAutores)) {
+            
+            sentenciaBorrarLibro.setString(1, libro.getIsbn());
+            int filasBL = sentenciaBorrarLibro.executeUpdate();
+            
+            // MODIFICADO: Si 0 filas, el ISBN no existia
+            if (filasBL == 0) {
+                throw new Exception("Libro no encontrado para ser dado de baja");
+            }
+            
+            sentenciaBorrarAutores.executeUpdate();
+
+        } catch (SQLException e) {
+            if (e.getErrorCode() == 1451) {
+                // MODIFICADO: Usamos ISBN en lugar de titulo porque libro es dummy
+                throw new Exception("No se puede borrar el libro con ISBN " + libro.getIsbn() +
+                        " porque tiene prestamos activos");
+            }
+            throw new Exception("ERROR MySQL " + e.getMessage());
+        }
+
+        return true;
+    }
+
+
+--------------------------------------------------
+2) METODO: buscar(Libro libro)
+--------------------------------------------------
+
+CAMBIO:
+   - Unificar en UNA SOLA consulta SQL con LEFT JOIN sobre libro_autor y autor.
+   - Recorrer ResultSet una vez: la primera fila crea el libro, todas las
+     filas posteriores del mismo ISBN anaden autores.
+   - Eliminar la segunda consulta preparada (pstAutor).
+
+JUSTIFICACION:
+   El profesor senala que se puede hacer con "una sola consulta anidada".
+   Reduces de 2 consultas a 1, y de 2 PreparedStatement a 1.
+
+CODIGO PROPUESTO:
+
+    public Libro buscar(Libro libro) throws Exception {
+        if (libro == null) {
+            throw new Exception("el libro no puede ser nulo");
+        }
+
+        Libro libroBuscado = null;
+        
+        // MODIFICADO: Una sola consulta que trae libro, audiolibro (si existe)
+        // y autores en una sola pasada
+        String buscarLibro = 
+                "SELECT l.isbn, l.titulo, l.anio, l.categoria, " +
+                "       al.duracion_segundos, al.formato, " +
+                "       a.nombre, a.apellidos, a.nacionalidad " +
+                "FROM libro l " +
+                "LEFT JOIN audiolibro al ON al.isbn = l.isbn " +
+                "LEFT JOIN libro_autor la ON la.isbn = l.isbn " +
+                "LEFT JOIN autor a ON a.idAutor = la.idAutor " +
+                "WHERE l.isbn = ?";
+
+        Connection conexion = Conexion.establecerConexion();
+        try (PreparedStatement pstLibro = conexion.prepareStatement(buscarLibro)) {
+            
+            pstLibro.setString(1, libro.getIsbn());
+
+            try (ResultSet rs = pstLibro.executeQuery()) {
+                while (rs.next()) {
+                    // MODIFICADO: Si es la primera fila, construimos el objeto Libro/Audiolibro
+                    if (libroBuscado == null) {
+                        String isbn = rs.getString("isbn");
+                        String titulo = rs.getString("titulo");
+                        int anio = rs.getInt("anio");
+                        Categoria categoria = Categoria.valueOf(rs.getString("categoria"));
+                        int duracion = rs.getInt("duracion_segundos");
+                        String formato = rs.getString("formato");
+
+                        if (formato != null) {
+                            libroBuscado = new Audiolibro(isbn, titulo, anio, categoria,
+                                    Duration.ofSeconds(duracion), formato);
+                        } else {
+                            libroBuscado = new Libro(isbn, titulo, anio, categoria);
+                        }
+                    }
+                    
+                    // MODIFICADO: Si hay autor en esta fila (puede ser null), lo anadimos
+                    String nombreAutor = rs.getString("nombre");
+                    if (nombreAutor != null) {
+                        libroBuscado.addAutor(new Autor(
+                                nombreAutor,
+                                rs.getString("apellidos"),
+                                rs.getString("nacionalidad")));
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
+        }
+
+        return libroBuscado;
+    }
+
+
+--------------------------------------------------
+3) METODO: todos()
+--------------------------------------------------
+
+CAMBIO:
+   - Unificar en UNA SOLA consulta SQL con LEFT JOIN sobre audiolibro, libro_autor y autor.
+   - Ordenar por ISBN (ORDER BY l.isbn) para agrupar filas en memoria.
+   - Usar solo ArrayList (NO Map). Al cambiar de ISBN, se crea un nuevo Libro.
+   - Eliminar la segunda PreparedStatement (ptAutores).
+
+JUSTIFICACION:
+   Mismo patron que buscar(), pero aplicado a una lista. 
+   El ORDER BY garantiza que todas las filas del mismo ISBN son consecutivas,
+   permitiendo agrupar con variables locales sin necesidad de Map.
+
+CODIGO PROPUESTO:
+
+    public List<Libro> todos() throws Exception {
+        List<Libro> librosBD = new ArrayList<>();
+        
+        // MODIFICADO: Consulta unica con LEFT JOIN de autores. 
+        // Ordenamos por ISBN para agrupar en memoria con ArrayList
+        String leerLibros = 
+                "SELECT l.isbn, l.titulo, l.anio, l.categoria, " +
+                "       al.duracion_segundos, al.formato, " +
+                "       a.nombre, a.apellidos, a.nacionalidad " +
+                "FROM libro l " +
+                "LEFT JOIN audiolibro al ON al.isbn = l.isbn " +
+                "LEFT JOIN libro_autor la ON la.isbn = l.isbn " +
+                "LEFT JOIN autor a ON a.idAutor = la.idAutor " +
+                "ORDER BY l.isbn";
+
+        Connection con = Conexion.establecerConexion();
+        try (PreparedStatement ptLibros = con.prepareStatement(leerLibros)) {
+
+            try (ResultSet rs = ptLibros.executeQuery()) {
+                String isbnActual = null;
+                Libro libroActual = null;
+
+                while (rs.next()) {
+                    String isbn = rs.getString("isbn");
+
+                    // MODIFICADO: Si cambia el ISBN (o es la primera fila), 
+                    // creamos nuevo Libro/Audiolibro y lo anadimos a la lista
+                    if (libroActual == null || !isbn.equals(isbnActual)) {
+                        isbnActual = isbn;
+                        String titulo = rs.getString("titulo");
+                        int anio = rs.getInt("anio");
+                        Categoria categoria = Categoria.valueOf(rs.getString("categoria"));
+                        Duration duracion = Duration.ofSeconds(rs.getInt("duracion_segundos"));
+                        String formato = rs.getString("formato");
+
+                        if (formato == null) {
+                            libroActual = new Libro(isbn, titulo, anio, categoria);
+                        } else {
+                            libroActual = new Audiolibro(isbn, titulo, anio, categoria, duracion, formato);
+                        }
+                        librosBD.add(libroActual);
+                    }
+
+                    // MODIFICADO: Anadimos autor si existe en esta fila
+                    String nombreAutor = rs.getString("nombre");
+                    if (nombreAutor != null) {
+                        libroActual.addAutor(new Autor(
+                                nombreAutor,
+                                rs.getString("apellidos"),
+                                rs.getString("nacionalidad")));
+                    }
+                }
+            }
+
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
+        }
+        return librosBD;
+    }
+
+
+===============================================================
+FICHERO: biblioteca/modelo/negocio/Prestamos.java
+===============================================================
+
+
+--------------------------------------------------
+4) METODO: todos(Usuario usuario)
+--------------------------------------------------
+
+CAMBIO:
+   - Eliminar las consultas SQL duplicadas para obtener libros y autores.
+   - Usar Libros.getLibros().buscar(libroDummy) (Singleton) para obtener
+     el objeto Libro completo con todos sus autores.
+   - Queda SOLO la consulta de prestamos.
+
+JUSTIFICACION:
+   El profesor senala que duplicas codigo y que deberias usar el patron Singleton.
+   Ya haces Usuarios.getUsuarios().buscar(...) en todos() sin parametro;
+   con Libros deberia ser igual. El dummy solo necesita ISBN valido.
+
+CODIGO PROPUESTO:
+
+    public List<Prestamo> todos(Usuario usuario) throws Exception {
+        if (usuario == null) {
+            throw new Exception("ERROR, el usuario no puede ser nulo");
+        }
+        List<Prestamo> prestamosUsuario = new ArrayList<>();
+        
+        // MODIFICADO: Solo leemos los datos del prestamo. Ni libros ni autores aqui.
+        String sqlListUsuario = 
+                "SELECT dni, isbn, fInicio, fLimite, devuelto, fDevolucion " +
+                "FROM prestamo " +
+                "WHERE dni = ?";
+
+        Connection con = Conexion.establecerConexion();
+        try (PreparedStatement psListPrestamosUsuario = con.prepareStatement(sqlListUsuario)) {
+            
+            psListPrestamosUsuario.setString(1, usuario.getDni());
+            
+            try (ResultSet filas = psListPrestamosUsuario.executeQuery()) {
+                while (filas.next()) {
+                    String dni = filas.getString("dni");
+                    String isbn = filas.getString("isbn");
+                    LocalDate fInicio = filas.getDate("fInicio").toLocalDate();
+                    LocalDate fLimite = filas.getDate("fLimite").toLocalDate();
+                    Boolean devuelto = filas.getBoolean("devuelto");
+                    
+                    LocalDate fDevolucion = null;
+                    Date date = filas.getDate("fDevolucion");
+                    if (date != null) {
+                        fDevolucion = date.toLocalDate();
+                    }
+
+                    // MODIFICADO: Usamos Singleton de Libros para obtener el libro completo,
+                    // igual que haces con Usuarios en todos() sin parametros
+                    Libro libroDummy = new Libro(isbn, "dummy", 0, Categoria.NOVELA);
+                    Libro libro = Libros.getLibros().buscar(libroDummy);
+                    
+                    // Nota: Si necesitas el usuario completo (con nombre, direccion...),
+                    // tambien puedes usar el Singleton aqui:
+                    // Usuario userDummy = new Usuario(dni, "dummy", "a@a.com",
+                    //         new Direccion("v","n","0","l"));
+                    // Usuario userCompleto = Usuarios.getUsuarios().buscar(userDummy);
+                    
+                    Prestamo p = new Prestamo(libro, usuario, fInicio);
+                    if (fDevolucion != null) {
+                        p.marcarDevuelto(fDevolucion);
+                    }
+                    prestamosUsuario.add(p);
+                }
+            }
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage(), e);
+        }
+
+        return prestamosUsuario;
+    }
+
+
+--------------------------------------------------
+5) METODO: todos()
+--------------------------------------------------
+
+CAMBIO:
+   - Eliminar las consultas SQL duplicadas para obtener libros y autores.
+   - Usar Libros.getLibros().buscar(libroDummy) para obtener el Libro.
+   - Usar Usuarios.getUsuarios().buscar(usuarioDummy) para obtener el Usuario
+     completo, evitando crear un objeto dummy hardcodeado a mano.
+   - Queda SOLO la consulta de prestamos.
+
+JUSTIFICACION:
+   Mismo patron que el metodo anterior. Unificas el uso de Singletons y reduces
+   drasticamente las lineas de codigo duplicadas.
+
+CODIGO PROPUESTO:
+
+    public List<Prestamo> todos() throws Exception {
+        List<Prestamo> prestamosTodos = new ArrayList<>();
+        
+        // MODIFICADO: Solo leemos los datos del prestamo
+        String sqlListPrestamos = 
+                "SELECT dni, isbn, fInicio, fLimite, devuelto, fDevolucion " +
+                "FROM prestamo";
+
+        Connection con = Conexion.establecerConexion();
+        try (PreparedStatement psListPrestamos = con.prepareStatement(sqlListPrestamos)) {
+            
+            try (ResultSet filas = psListPrestamos.executeQuery()) {
+                while (filas.next()) {
+                    String dni = filas.getString("dni");
+                    String isbn = filas.getString("isbn");
+                    LocalDate fInicio = filas.getDate("fInicio").toLocalDate();
+                    LocalDate fLimite = filas.getDate("fLimite").toLocalDate();
+                    Boolean devuelto = filas.getBoolean("devuelto");
+                    
+                    LocalDate fDevolucion = null;
+                    Date date = filas.getDate("fDevolucion");
+                    if (date != null) {
+                        fDevolucion = date.toLocalDate();
+                    }
+
+                    // MODIFICADO: Singleton de Libros para obtener libro completo
+                    Libro libroDummy = new Libro(isbn, "dummy", 0, Categoria.NOVELA);
+                    Libro libro = Libros.getLibros().buscar(libroDummy);
+
+                    // MODIFICADO: Singleton de Usuarios para obtener usuario completo,
+                    // evitando crear objetos dummie a mano con datos hardcodeados
+                    Usuario usuarioDummy = new Usuario(dni, "dummy", "dummy@dummy.com",
+                            new Direccion("via", "numero", "00000", "localidad"));
+                    Usuario usuario = Usuarios.getUsuarios().buscar(usuarioDummy);
+
+                    Prestamo p = new Prestamo(libro, usuario, fInicio);
+                    if (fDevolucion != null) {
+                        p.marcarDevuelto(fDevolucion);
+                    }
+                    prestamosTodos.add(p);
+                }
+            }
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage(), e);
+        }
+
+        return prestamosTodos;
+    }
+
+
+===============================================================
+FICHERO: biblioteca/modelo/Modelo.java
+===============================================================
+
+
+--------------------------------------------------
+6) METODOS: prestar() y devolver()
+--------------------------------------------------
+
+CAMBIO:
+   - Antes de llamar a Prestamos, validar la existencia del libro y usuario
+     usando los Singletons Libros y Usuarios.
+   - Pasar a Prestamos objetos completos y verificados.
+   - Esto evita que Prestamos trabaje "a ciegas" y centraliza la logica de
+     busqueda en el Modelo/Controlador, como sugiere el profesor.
+
+JUSTIFICACION:
+   El profesor indica: "La busqueda del libro y del usuario a la hora de hacer 
+   o devolver un prestamo, deberias hacerla en el controlador, o en el modelo 
+   (por eso implementamos el patron Singleton)".
+
+CODIGO PROPUESTO:
+
+    public void prestar(Libro libro, Usuario usuario, LocalDate fecha) throws Exception {
+        // MODIFICADO: Validamos existencia en el Modelo usando Singleton,
+        // centralizando la logica de busqueda antes de llamar a Prestamos
+        Libro libroExistente = libros.buscar(libro);
+        if (libroExistente == null) {
+            throw new Exception("El libro no existe");
+        }
+        Usuario usuarioExistente = usuarios.buscar(usuario);
+        if (usuarioExistente == null) {
+            throw new Exception("El usuario no existe");
+        }
+        prestamos.prestar(libroExistente, usuarioExistente, fecha);
+    }
+
+    public boolean devolver(Libro libro, Usuario usuario, LocalDate fecha) throws Exception {
+        // MODIFICADO: Igual que en prestar, validamos existencia aqui
+        Libro libroExistente = libros.buscar(libro);
+        if (libroExistente == null) {
+            throw new Exception("El libro no existe");
+        }
+        Usuario usuarioExistente = usuarios.buscar(usuario);
+        if (usuarioExistente == null) {
+            throw new Exception("El usuario no existe");
+        }
+        return prestamos.devolver(libroExistente, usuarioExistente, fecha);
+    }
+
+
+===============================================================
+ RESUMEN DE BENEFICIOS
+===============================================================
+
+1. bajaLibro() sin buscar antes
+   -> Consistencia con Usuarios.baja(), menos consultas SQL.
+
+2. buscar() y todos() con JOIN unico
+   -> Menos consultas, menos codigo, mejor rendimiento.
+   -> En todos() se ordena por ISBN para agrupar con ArrayList.
+
+3. Prestamos usa Singleton de Libros
+   -> No duplicas la logica de lectura de libros/autores.
+   -> Codigo mas limpio y mantenible.
+
+4. Busqueda en Modelo.prestar() / devolver()
+   -> El patron Singleton justifica su existencia.
+   -> Prestamos se simplifica y solo se encarga de insert/update.
+
+
+===============================================================
+ NOTAS ADICIONALES
+===============================================================
+
+- En todos() de Libros, el ORDER BY l.isbn en la consulta SQL es CLAVE
+  para que el agrupamiento con ArrayList funcione correctamente.
+
+- Si un libro no tiene autores, los campos a.nombre, a.apellidos, a.nacionalidad
+  seran null. El codigo comprueba "if (nombreAutor != null)" para evitar
+  anadir autores vacios.
+
+- Los metodos de Prestamos asumen que Libros.buscar() y Usuarios.buscar()
+  nunca devuelven null si el registro existe. Si pueden devolver null,
+  anade una comprobacion adicional antes de crear el Prestamo.
+
+===============================================================

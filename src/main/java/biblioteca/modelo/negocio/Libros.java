@@ -41,7 +41,7 @@ public class Libros {
         }
         List<Autor> autoresLibro = libro.getAutores();
         boolean esAudiolibro=false;
-        // esAudiolibro= libro instanceof Audiolibro; <-- esto devuelve true o false?
+
         if (libro instanceof Audiolibro) {
             esAudiolibro=true;
         } else {
@@ -65,7 +65,11 @@ public class Libros {
 
         //añadimos primero libro y audiolibro por las restricciones de las tablas para que luego se referencien
         Connection conexion = Conexion.establecerConexion();
-        conexion.setAutoCommit(false);
+        try {
+            conexion.setAutoCommit(false); //hacemos el autocommit para asegurarnos insertar en las dos tablas
+        } catch (SQLException e) {
+            throw new Exception("ERROR al configurar la transacción: " + e.getMessage());
+        }
         try(PreparedStatement pstLibro=conexion.prepareStatement(insertLibro);
             PreparedStatement pstAudioLibro = conexion.prepareStatement(insertAudioLibro);
             PreparedStatement pstAutor = conexion.prepareStatement(insertAutor);
@@ -99,14 +103,21 @@ public class Libros {
                 pstLibroAutor.setString(4, autor.getNacionalidad());
                 pstLibroAutor.executeUpdate();
             }
-        //hacemos el commit si no ha saltado excepcion.
+            //hacemos el commit si no ha saltado ninguna excepcion.
             conexion.commit();
-        }catch (SQLException e){
-            conexion.rollback();
-            throw new Exception("Error MySQL "+e.getMessage());
-        }finally{
-            //pase lo que pase volvemos a poner el autocommit
-            conexion.setAutoCommit(true);
+        } catch (SQLException e) {
+            try {
+                conexion.rollback(); //hacemos rollback si ha habido algun error
+            } catch (SQLException ex) {
+                throw new Exception("ERROR al hacer rollback: " + ex.getMessage());
+            }
+            throw new Exception("Error MySQL: " + e.getMessage());
+        } finally {
+            try {
+                conexion.setAutoCommit(true);
+            } catch (SQLException ex) {
+                throw new Exception("ERROR al restaurar autocommit: " + ex.getMessage());
+            }
         }
 
     }
@@ -115,7 +126,6 @@ public class Libros {
         if (libro == null) {
             throw new Exception("el libro no puede ser nulo para darlo de baja");
         }
-        //no se si hay que buscarlo porque haria otra conexion a la base de datos. ????
         if (buscar(libro) == null) { //lanzamos la excepcion si el metodo buscar retorna null puesto que no se ha encontrado el libro.
             throw new Exception("Libro no encontrado para ser dado de baja");
         }
@@ -190,7 +200,7 @@ public class Libros {
                     }
                 }
             }
-
+             //buscamos ahora los autores del libro encontrado haciendo una nueva consulta
             if (libroBuscado != null) {
                 pstAutor.setString(1, libro.getIsbn());
                 try (ResultSet rsAutor = pstAutor.executeQuery()) {

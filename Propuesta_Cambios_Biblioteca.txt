@@ -1,0 +1,338 @@
+PROPUESTA DE CAMBIOS - BIBLIOTECA V6.1
+==========================================
+
+A continuación se detallan los cambios propuestos siguiendo las correcciones del profesor:
+1. Optimización del borrado: Se elimina la búsqueda previa en Libros.
+2. Consultas anidadas: Se unifican las consultas de Libros y Autores mediante JOINs.
+3. Patrón Singleton: Se utiliza para evitar duplicar código SQL en la gestión de préstamos.
+
+--------------------------------------------------------------------------------
+ARCHIVO: src/main/java/biblioteca/modelo/negocio/Libros.java
+--------------------------------------------------------------------------------
+
+package biblioteca.modelo.negocio;
+
+import biblioteca.modelo.dominio.Audiolibro;
+import biblioteca.modelo.dominio.Autor;
+import biblioteca.modelo.dominio.Categoria;
+import biblioteca.modelo.dominio.Libro;
+import biblioteca.modelo.negocio.mysql.Conexion;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+
+public class Libros {
+
+    private static Libros libros = null;
+
+    private Libros() {}
+
+    public static Libros getLibros() {
+        if (libros == null) {
+            libros = new Libros();
+        }
+        return libros;
+    }
+
+    public void alta(Libro libro) throws Exception {
+        if (libro == null) {
+            throw new Exception("el libro no puede ser nulo para darlo de alta");
+        }
+        if (buscar(libro) != null) {
+            throw new Exception("!!ERROR!!! El libro ya estaba dado de alta");
+        }
+        List<Autor> autoresLibro = libro.getAutores();
+        boolean esAudiolibro = libro instanceof Audiolibro;
+
+        String insertAutor = "INSERT INTO autor (nombre, apellidos, nacionalidad) values (?,?,?)";
+        String insertLibro = "insert into libro (isbn, titulo, anio, categoria) values (?, ?, ?, ?)";
+        String insertAudioLibro = "insert into audiolibro(isbn, duracion_segundos, formato) values (?, ?, ?)";
+        String insertLibroAutor = "INSERT INTO libro_autor (isbn, idAutor) SELECT ?, idAutor FROM autor WHERE nombre = ? AND apellidos = ? AND nacionalidad = ?";
+
+        Connection conexion = Conexion.establecerConexion();
+        try {
+            conexion.setAutoCommit(false);
+            try (PreparedStatement pstLibro = conexion.prepareStatement(insertLibro);
+                 PreparedStatement pstAudioLibro = conexion.prepareStatement(insertAudioLibro);
+                 PreparedStatement pstAutor = conexion.prepareStatement(insertAutor);
+                 PreparedStatement pstLibroAutor = conexion.prepareStatement(insertLibroAutor)) {
+                
+                pstLibro.setString(1, libro.getIsbn());
+                pstLibro.setString(2, libro.getTitulo());
+                pstLibro.setInt(3, libro.getAnio());
+                pstLibro.setString(4, libro.getCategoria().name());
+                pstLibro.executeUpdate();
+
+                if (esAudiolibro) {
+                    pstAudioLibro.setString(1, libro.getIsbn());
+                    pstAudioLibro.setInt(2, (int) ((Audiolibro) libro).getDuracion().toSeconds());
+                    pstAudioLibro.setString(3, ((Audiolibro) libro).getFormato());
+                    pstAudioLibro.executeUpdate();
+                }
+
+                for (Autor autor : autoresLibro) {
+                    pstAutor.setString(1, autor.getNombre());
+                    pstAutor.setString(2, autor.getApellidos());
+                    pstAutor.setString(3, autor.getNacionalidad());
+                    pstAutor.executeUpdate();
+                    
+                    pstLibroAutor.setString(1, libro.getIsbn());
+                    pstLibroAutor.setString(2, autor.getNombre());
+                    pstLibroAutor.setString(3, autor.getApellidos());
+                    pstLibroAutor.setString(4, autor.getNacionalidad());
+                    pstLibroAutor.executeUpdate();
+                }
+                conexion.commit();
+            } catch (SQLException e) {
+                conexion.rollback();
+                throw new Exception("Error MySQL: " + e.getMessage());
+            } finally {
+                conexion.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new Exception("ERROR al gestionar la transacción: " + e.getMessage());
+        }
+    }
+
+    /* MODIFICACIÓN: Se elimina la búsqueda previa mediante buscar(libro).
+       Se intenta el borrado directamente y se comprueba si el número de filas afectadas es 0. */
+    public boolean bajaLibro(Libro libro) throws Exception {
+        if (libro == null) {
+            throw new Exception("el libro no puede ser nulo para darlo de baja");
+        }
+
+        String pstDeleteLibro = "delete from libro where isbn = ?";
+        String pstDeleteAutores = "delete from autor where idAutor not in(select idAutor from libro_autor)";
+
+        Connection conexion = Conexion.establecerConexion();
+        try (PreparedStatement sentenciaBorrarLibro = conexion.prepareStatement(pstDeleteLibro);
+             PreparedStatement sentenciaBorrarAutores = conexion.prepareStatement(pstDeleteAutores)) {
+            
+            sentenciaBorrarLibro.setString(1, libro.getIsbn());
+            int filasBL = sentenciaBorrarLibro.executeUpdate();
+            
+            if (filasBL == 0) { 
+                throw new Exception("Libro no encontrado para ser dado de baja");
+            }
+            
+            sentenciaBorrarAutores.executeUpdate();
+        } catch (SQLException e) {
+            if (e.getErrorCode() == 1451) {
+                throw new Exception("No se puede borrar el libro con ISBN " + libro.getIsbn() + " porque tiene préstamos activos");
+            }
+            throw new Exception("ERROR MySQL " + e.getMessage());
+        }
+        return true;
+    }
+
+    /* MODIFICACIÓN: Se unifican las consultas de libro y autores en una sola usando JOIN. */
+    public Libro buscar(Libro libro) throws Exception {
+        if (libro == null) throw new Exception("el libro no puede ser nulo");
+
+        Libro libroBuscado = null;
+        String sql = "SELECT l.isbn, l.titulo, l.anio, l.categoria, al.duracion_segundos, al.formato, " +
+                     "a.nombre, a.apellidos, a.nacionalidad " +
+                     "FROM libro l " +
+                     "LEFT JOIN audiolibro al ON al.isbn = l.isbn " +
+                     "LEFT JOIN libro_autor la ON la.isbn = l.isbn " +
+                     "LEFT JOIN autor a ON a.idAutor = la.idAutor " +
+                     "WHERE l.isbn = ?";
+
+        Connection conexion = Conexion.establecerConexion();
+        try (PreparedStatement pst = conexion.prepareStatement(sql)) {
+            pst.setString(1, libro.getIsbn());
+            try (ResultSet rs = pst.executeQuery()) {
+                while (rs.next()) {
+                    if (libroBuscado == null) {
+                        String isbn = rs.getString("isbn");
+                        String titulo = rs.getString("titulo");
+                        int anio = rs.getInt("anio");
+                        Categoria categoria = Categoria.valueOf(rs.getString("categoria"));
+                        String formato = rs.getString("formato");
+
+                        if (formato != null) {
+                            libroBuscado = new Audiolibro(isbn, titulo, anio, categoria, Duration.ofSeconds(rs.getInt("duracion_segundos")), formato);
+                        } else {
+                            libroBuscado = new Libro(isbn, titulo, anio, categoria);
+                        }
+                    }
+                    if (rs.getString("nombre") != null) {
+                        libroBuscado.addAutor(new Autor(rs.getString("nombre"), rs.getString("apellidos"), rs.getString("nacionalidad")));
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
+        }
+        return libroBuscado;
+    }
+
+    /* MODIFICACIÓN: Se utiliza una sola consulta con LEFT JOIN para obtener libros, audiolibros y autores simultáneamente.
+       Se evita el problema de las N+1 consultas (una consulta por cada libro para sus autores). */
+    public List<Libro> todos() throws Exception {
+        List<Libro> librosBD = new ArrayList<>();
+        String sql = "SELECT l.isbn, l.titulo, l.anio, l.categoria, al.duracion_segundos, al.formato, " +
+                     "a.nombre, a.apellidos, a.nacionalidad " +
+                     "FROM libro l " +
+                     "LEFT JOIN audiolibro al ON al.isbn = l.isbn " +
+                     "LEFT JOIN libro_autor la ON la.isbn = l.isbn " +
+                     "LEFT JOIN autor a ON a.idAutor = la.idAutor " +
+                     "ORDER BY l.isbn";
+
+        Connection con = Conexion.establecerConexion();
+        try (PreparedStatement pt = con.prepareStatement(sql);
+             ResultSet rs = pt.executeQuery()) {
+
+            Libro libroActual = null;
+            String isbnAnterior = "";
+
+            while (rs.next()) {
+                String isbn = rs.getString("isbn");
+                if (!isbn.equals(isbnAnterior)) {
+                    String titulo = rs.getString("titulo");
+                    int anio = rs.getInt("anio");
+                    Categoria categoria = Categoria.valueOf(rs.getString("categoria"));
+                    String formato = rs.getString("formato");
+
+                    if (formato == null) {
+                        libroActual = new Libro(isbn, titulo, anio, categoria);
+                    } else {
+                        libroActual = new Audiolibro(isbn, titulo, anio, categoria, Duration.ofSeconds(rs.getInt("duracion_segundos")), formato);
+                    }
+                    librosBD.add(libroActual);
+                    isbnAnterior = isbn;
+                }
+                if (rs.getString("nombre") != null) {
+                    libroActual.addAutor(new Autor(rs.getString("nombre"), rs.getString("apellidos"), rs.getString("nacionalidad")));
+                }
+            }
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
+        }
+        return librosBD;
+    }
+}
+
+--------------------------------------------------------------------------------
+ARCHIVO: src/main/java/biblioteca/modelo/negocio/Prestamos.java
+--------------------------------------------------------------------------------
+
+package biblioteca.modelo.negocio;
+
+import biblioteca.modelo.dominio.*;
+import biblioteca.modelo.negocio.mysql.Conexion;
+
+import java.sql.*;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+
+public class Prestamos {
+    private static Prestamos prestamos = null;
+
+    private Prestamos() {}
+
+    public static Prestamos getPrestamos() {
+        if (prestamos == null) {
+            prestamos = new Prestamos();
+        }
+        return prestamos;
+    }
+
+    public Prestamo prestar(Libro libro, Usuario usuario, LocalDate fecha) throws Exception {
+        if (libro == null || usuario == null || fecha == null) throw new Exception("ERROR: Datos nulos");
+        
+        Prestamo prestamoNuevo = new Prestamo(libro, usuario, fecha);
+        String sql = "insert into prestamo (dni, isbn, fInicio, fLimite) values (?, ?, ?, ?)";
+        
+        Connection con = Conexion.establecerConexion();
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, usuario.getDni());
+            ps.setString(2, libro.getIsbn());
+            ps.setDate(3, Date.valueOf(prestamoNuevo.getfInicio()));
+            ps.setDate(4, Date.valueOf(prestamoNuevo.getfLimite()));
+            ps.executeUpdate();
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
+        }
+        return prestamoNuevo;
+    }
+
+    public boolean devolver(Libro libro, Usuario usuario, LocalDate fechaDevolucion) throws Exception {
+        if (libro == null || usuario == null || fechaDevolucion == null) throw new Exception("ERROR: Datos nulos");
+
+        String sql = "UPDATE prestamo SET devuelto = 1, fDevolucion = ? WHERE dni = ? AND isbn = ? AND devuelto = 0";
+        Connection conexion = Conexion.establecerConexion();
+        try (PreparedStatement ps = conexion.prepareStatement(sql)) {
+            ps.setDate(1, Date.valueOf(fechaDevolucion));
+            ps.setString(2, usuario.getDni());
+            ps.setString(3, libro.getIsbn());
+            if (ps.executeUpdate() == 0) throw new Exception("No hay préstamo activo para este usuario y libro");
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL " + e.getMessage());
+        }
+        return true;
+    }
+
+    /* MODIFICACIÓN: Se elimina todo el código SQL duplicado que buscaba libros y autores.
+       Se utiliza el Singleton de Libros para obtener el objeto completo de forma centralizada. */
+    public List<Prestamo> todos(Usuario usuario) throws Exception {
+        if (usuario == null) throw new Exception("ERROR, el usuario no puede ser nulo");
+        
+        List<Prestamo> prestamosUsuario = new ArrayList<>();
+        String sql = "select isbn, fInicio, fLimite, devuelto, fDevolucion from prestamo where dni = ?";
+
+        Connection con = Conexion.establecerConexion();
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setString(1, usuario.getDni());
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    Libro libro = Libros.getLibros().buscar(new Libro(rs.getString("isbn"), null, 0, null));
+                    
+                    if (libro != null) {
+                        Prestamo p = new Prestamo(libro, usuario, rs.getDate("fInicio").toLocalDate());
+                        if (rs.getDate("fDevolucion") != null) {
+                            p.marcarDevuelto(rs.getDate("fDevolucion").toLocalDate());
+                        }
+                        prestamosUsuario.add(p);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
+        }
+        return prestamosUsuario;
+    }
+
+    /* MODIFICACIÓN: Se elimina la duplicidad de código SQL. Se delega la búsqueda de Libro y Usuario
+       a sus respectivos repositorios (Singletons), manteniendo la coherencia y evitando errores. */
+    public List<Prestamo> todos() throws Exception {
+        List<Prestamo> prestamosTodos = new ArrayList<>();
+        String sql = "select dni, isbn, fInicio, fLimite, devuelto, fDevolucion from prestamo";
+
+        Connection con = Conexion.establecerConexion();
+        try (PreparedStatement ps = con.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                Libro libro = Libros.getLibros().buscar(new Libro(rs.getString("isbn"), null, 0, null));
+                Usuario usuario = Usuarios.getUsuarios().buscar(new Usuario(rs.getString("dni"), null, null, null));
+
+                if (libro != null && usuario != null) {
+                    Prestamo p = new Prestamo(libro, usuario, rs.getDate("fInicio").toLocalDate());
+                    if (rs.getDate("fDevolucion") != null) {
+                        p.marcarDevuelto(rs.getDate("fDevolucion").toLocalDate());
+                    }
+                    prestamosTodos.add(p);
+                }
+            }
+        } catch (SQLException e) {
+            throw new Exception("ERROR MySQL: " + e.getMessage());
+        }
+        return prestamosTodos;
+    }
+}

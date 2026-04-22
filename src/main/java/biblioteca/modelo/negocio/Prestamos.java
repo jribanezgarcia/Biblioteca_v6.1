@@ -58,10 +58,10 @@ public class Prestamos {
 
     public boolean devolver(Libro libro, Usuario usuario, LocalDate fechaDevolucion) throws Exception {
         if (libro == null) {
-            throw new Exception("ERROR, el libro no puede ser nulo");
+            throw new Exception("ERROR, el libro no puede ser nulo para devolverlo");
         }
         if (usuario == null) {
-            throw new Exception("ERROR, el usuario no puede ser nulo");
+            throw new Exception("ERROR, el usuario no puede ser nulo para hacer la devolucion");
         }
         if (fechaDevolucion == null) {
             throw new Exception("ERROR, la fecha no puede ser nula");
@@ -161,13 +161,13 @@ public class Prestamos {
                         }
 
                     }catch (SQLException e){
-                        throw new SQLException ("ERROR MySQL "+e.getMessage());
+                        throw new Exception("ERROR MySQL: " + e.getMessage(), e);
                     }
 
                 }
             }
         }catch (SQLException e){
-            throw new Exception("ERROR MySQL "+e.getMessage());
+            throw new Exception("ERROR MySQL: " + e.getMessage(), e);
         }
 
         return prestamosUsuario;
@@ -246,13 +246,13 @@ public class Prestamos {
                         }
 
                     }catch (SQLException e){
-                        throw new SQLException ("ERROR MySQL "+e.getMessage());
+                        throw new Exception("ERROR MySQL: " + e.getMessage(), e);
                     }
 
                 }
             }
         }catch (SQLException e){
-            throw new Exception("ERROR MySQL "+e.getMessage());
+            throw new Exception("ERROR MySQL: " + e.getMessage(), e);
         }
 
         return prestamosTodos;

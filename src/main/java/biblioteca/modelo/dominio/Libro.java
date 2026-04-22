@@ -84,7 +84,7 @@ public class Libro implements Comparable<Libro>{
                     "\nDebe ser un número de 13 dígitos que empiece por 978 o 979." +
                     "\nEjemplo: 9788437604947");
         }
-        this.isbn = isbn;
+        this.isbn = isbn.trim();
     }
 
     public String getTitulo() {
